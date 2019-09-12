@@ -103,7 +103,6 @@ class hackrf_device_list_t(Structure):
                 ("usb_devicecount", c_int) ]
 
 #
-#_callback = CFUNCTYPE(c_int, POINTER(hackrf_transfer))
 _callback = CFUNCTYPE(c_int, POINTER(hackrf_transfer))
 
 
@@ -333,7 +332,6 @@ f.argtypes = [p_hackrf_device, POINTER(read_partid_serialno_t)]
 
 
 class HackRF(object):
-    
     _center_freq = 100e6
     _sample_rate = 20e6
     device_opened = False
@@ -356,7 +354,7 @@ class HackRF(object):
 
         hdl = hackrf_device_list()
         result = libhackrf.hackrf_device_list_open(hdl, device_index, pointer(self.dev_p))
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             raise IOError('Error code %d when opening HackRF' % (result))
 
         # This is how I used to do it...
@@ -396,7 +394,7 @@ class HackRF(object):
 
         # start receiving
         result = libhackrf.hackrf_start_rx(self.dev_p, rs_callback, None)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             raise IOError("Error in hackrf_start_rx")
         self.still_sampling = True      # this does get called
 
@@ -406,7 +404,7 @@ class HackRF(object):
 
         # stop receiving
         result = libhackrf.hackrf_stop_rx(self.dev_p)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             raise IOError("Error in hackrf_stop_rx")
 
         # convert samples to iq
@@ -419,7 +417,7 @@ class HackRF(object):
     def set_freq(self, freq):
         freq = int(freq)
         result = libhackrf.hackrf_set_freq(self.dev_p, freq)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             raise IOError('Error code %d when setting frequency to %d Hz'\
                     % (result, freq))
 
@@ -435,7 +433,7 @@ class HackRF(object):
     # sample rate
     def set_sample_rate(self, rate):
         result = libhackrf.hackrf_set_sample_rate(self.dev_p, rate)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             # TODO: make this error message better
             raise IOError('Sample rate set failure')
         self._sample_rate = rate
@@ -451,14 +449,14 @@ class HackRF(object):
 
     def enable_amp(self):
         result = libhackrf.hackrf_set_amp_enable(self.dev_p, 1)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             # TODO: make this a better message
             raise IOError("error enabling amp")
         return 0
 
     def disable_amp(self):
         result = libhackrf.hackrf_set_amp_enable(self.dev_p, 0)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             # TODO: make this a better message
             raise IOError("error disabling amp")
         return 0
@@ -469,7 +467,7 @@ class HackRF(object):
     def set_lna_gain(self, gain):
         gain -= (gain % 8)    # round DOWN to multiple of 8
         result = libhackrf.hackrf_set_lna_gain(self.dev_p, gain)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             # TODO: make this a better message
             raise IOError("error setting lna gain")
         self._lna_gain = gain
@@ -484,7 +482,7 @@ class HackRF(object):
     def set_vga_gain(self, gain):
         gain -= (gain % 2)
         result = libhackrf.hackrf_set_vga_gain(self.dev_p, gain)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             # TODO: make this a better message
             raise IOError("error setting vga gain")
         self._vga_gain = gain
@@ -500,13 +498,13 @@ class HackRF(object):
     def start_rx(self, rx_cb_fn):
         rx_cb = _callback(rx_cb_fn)
         result = libhackrf.hackrf_start_rx(self.dev_p, rx_cb, None)
-        if result != 0:
+        if result != HackRfError.HACKRF_SUCCESS:
             raise IOError("start_rx failure")
 
     def stop_rx(self):
         result = libhackrf.hackrf_stop_rx(self.dev_p)
-        if result != 0:
-            raise IOError("stop_rx failure");
+        if result != HackRfError.HACKRF_SUCCESS:
+            raise IOError("stop_rx failure")
 
 
 
@@ -516,7 +514,7 @@ class HackRF(object):
 def get_serial_no(dev_p):
     sn = read_partid_serialno_t()
     result = libhackrf.hackrf_board_partid_serialno_read(dev_p, sn)
-    if result != 0:
+    if result != HackRfError.HACKRF_SUCCESS:
         raise IOError("Error %d while getting serial number" % (result))
 
 
@@ -541,9 +539,7 @@ def bytes2iq(data):
     return iq
 
 
-
-
 # really, user shouldn't have to call this function at all
 result = libhackrf.hackrf_init()
-if result != 0:
+if result != HackRfError.HACKRF_SUCCESS:
     print "error initializing the hackrf library"
