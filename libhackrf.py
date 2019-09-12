@@ -153,6 +153,11 @@ libhackrf.hackrf_set_lna_gain.argtypes = [p_hackrf_device, c_uint32]
 # uint32_t value);
 libhackrf.hackrf_set_vga_gain.restype = c_int
 libhackrf.hackrf_set_vga_gain.argtypes = [p_hackrf_device, c_uint32]
+# extern ADDAPI int ADDCALL hackrf_set_txvga_gain(hackrf_device*
+# device, uint32_t value);
+libhackrf.hackrf_set_txvga_gain.restype = c_int
+libhackrf.hackrf_set_txvga_gain.argtypes = [p_hackrf_device, c_uint32]
+
 
 # START AND STOP RX
 # extern ADDAPI int ADDCALL hackrf_start_rx(hackrf_device* device,
@@ -162,6 +167,17 @@ libhackrf.hackrf_start_rx.argtypes = [p_hackrf_device, _callback, c_void_p]
 # extern ADDAPI int ADDCALL hackrf_stop_rx(hackrf_device* device);
 libhackrf.hackrf_stop_rx.restype = c_int
 libhackrf.hackrf_stop_rx.argtypes = [p_hackrf_device]
+# extern ADDAPI int ADDCALL hackrf_start_tx(hackrf_device* device,
+# hackrf_sample_block_cb_fn callback, void* tx_ctx);
+libhackrf.hackrf_start_tx.restype = c_int
+libhackrf.hackrf_start_tx.argtypes = [p_hackrf_device, _callback, c_void_p]
+# extern ADDAPI int ADDCALL hackrf_stop_tx(hackrf_device* device);
+libhackrf.hackrf_stop_tx.restype = c_int
+libhackrf.hackrf_stop_tx.argtypes = [p_hackrf_device]
+# extern ADDAPI int ADDCALL hackrf_is_streaming(hackrf_device* device);
+libhackrf.hackrf_is_streaming.restype = c_int
+libhackrf.hackrf_is_streaming.argtypes = [p_hackrf_device]
+
 
 #extern ADDAPI hackrf_device_list_t* ADDCALL hackrf_device_list();
 f = libhackrf.hackrf_device_list
@@ -211,17 +227,16 @@ def read_samples_cb(hackrf_transfer):
 rs_callback = _callback(read_samples_cb)
 
 
+def write_noise_cb(hackrf_transfer):
+    c = hackrf_transfer.contents
+    buf_len = c.valid_length
+    vals = np.random.randint(0, 127, buf_len).tolist()
+    c.buffer = (c_byte * len(vals))(*vals)
+    return 0
 
-## extern ADDAPI int ADDCALL hackrf_start_tx(hackrf_device* device,
-## hackrf_sample_block_cb_fn callback, void* tx_ctx);
-#libhackrf.hackrf_start_tx.restype = c_int
-#libhackrf.hackrf_start_tx.argtypes = [POINTER(hackrf_device), _callback, c_void_p]
-## extern ADDAPI int ADDCALL hackrf_stop_tx(hackrf_device* device);
-#libhackrf.hackrf_stop_tx.restype = c_int
-#libhackrf.hackrf_stop_tx.argtypes = [POINTER(hackrf_device)]
-# extern ADDAPI int ADDCALL hackrf_is_streaming(hackrf_device* device);
-libhackrf.hackrf_is_streaming.restype = c_int
-libhackrf.hackrf_is_streaming.argtypes = [p_hackrf_device]
+noise_callback = _callback(write_noise_cb)
+
+
 ## extern ADDAPI int ADDCALL hackrf_max2837_read(hackrf_device* device,
 ## uint8_t register_number, uint16_t* value);
 #libhackrf.hackrf_max2837_read.restype = c_int
@@ -308,10 +323,6 @@ f = libhackrf.hackrf_board_partid_serialno_read
 f.restype = c_int
 f.argtypes = [p_hackrf_device, POINTER(read_partid_serialno_t)]
 
-## extern ADDAPI int ADDCALL hackrf_set_txvga_gain(hackrf_device*
-## device, uint32_t value);
-#libhackrf.hackrf_set_txvga_gain.restype = c_int
-#libhackrf.hackrf_set_txvga_gain.argtypes = [POINTER(hackrf_device), c_uint32]
 ## extern ADDAPI int ADDCALL hackrf_set_antenna_enable(hackrf_device*
 ## device, const uint8_t value);
 #libhackrf.hackrf_set_antenna_enable.restype = c_int
@@ -329,7 +340,6 @@ f.argtypes = [p_hackrf_device, POINTER(read_partid_serialno_t)]
 ## libhackrf.hackrf_filter_path_name.restype = POINTER(c_char)
 ## libhackrf.hackrf_filter_path_name.argtypes = []
 #
-
 
 class HackRF(object):
     _center_freq = 100e6
@@ -412,6 +422,12 @@ class HackRF(object):
 
         return iq
 
+    def transmit_noise(self):
+        result = libhackrf.hackrf_start_tx(self.dev_p, noise_callback, None)
+        if result != HackRfError.HACKRF_SUCCESS:
+            raise IOError("Error in hackrf_start_tx in write_samples")
+
+        return 0
 
     # setting the center frequency
     def set_freq(self, freq):
@@ -506,6 +522,29 @@ class HackRF(object):
         if result != HackRfError.HACKRF_SUCCESS:
             raise IOError("stop_rx failure")
 
+    def start_tx(self, tx_cb_fn):
+        tx_cb = _callback(tx_cb_fn)
+        result =  libhackrf.hackrf_start_tx(self.dev_p, tx_cb, None)
+        if result != HackRfError.HACKRF_SUCCESS:
+            raise IOError("start_tx failure")
+
+    def stop_tx(self):
+        result = libhackrf.hackrf_stop_tx(self.dev_p)
+        if result != HackRfError.HACKRF_SUCCESS:
+            raise IOError("stop_tx failure")
+
+    def set_txvga_gain(self, gain):
+        result = libhackrf.hackrf_set_txvga_gain(self.dev_p, gain)
+        if result != HackRfError.HACKRF_SUCCESS:
+            raise IOError("error setting txvga gain")
+        self._txvga_gain = gain
+        print "TXVGA gain set to",gain,"dB."
+        return 0
+
+    def get_txvga_gain(self):
+        return self._txvga_gain
+
+    txvga_gain = property(get_txvga_gain, set_txvga_gain)
 
 
 # returns serial number as a string
