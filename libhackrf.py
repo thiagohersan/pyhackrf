@@ -226,12 +226,20 @@ def read_samples_cb(hackrf_transfer):
 
 rs_callback = _callback(read_samples_cb)
 
+def read_samples_to_buffer_cb(hackrf_transfer):
+    c = hackrf_transfer.contents
+    this_hackrf = _hackrf_dict[c.device]
+    values = cast(c.buffer, POINTER(c_byte * c.buffer_length)).contents
+    this_hackrf.buffer = this_hackrf.buffer + bytearray(values)
+    return 0
+
+tb_callback = _callback(read_samples_to_buffer_cb)
 
 def write_noise_cb(hackrf_transfer):
     c = hackrf_transfer.contents
     buf_len = c.valid_length
-    vals = np.random.randint(0, 127, buf_len).tolist()
-    c.buffer = (c_byte * len(vals))(*vals)
+    values = np.random.randint(0, 127, buf_len).tolist()
+    c.buffer = (c_byte * len(values))(*values)
     return 0
 
 noise_callback = _callback(write_noise_cb)
@@ -347,23 +355,25 @@ class HackRF(object):
     device_opened = False
 
     def __init__(self, device_index=0):
-        self.open(device_index)
+        self.device_index = device_index
+        self.open()
         
         # TODO: initialize defaults here
-        self.disable_amp()
+        self.enable_amp()
+        self.txvga_gain = 39
+
         self.set_lna_gain(16)
         self.set_vga_gain(16)
 
         self.buffer = bytearray()
         self.num_bytes = 16*262144
 
-    def open(self, device_index=0):
-
+    def open(self):
         # pointer to device structure
         self.dev_p = p_hackrf_device(None)
 
         hdl = hackrf_device_list()
-        result = libhackrf.hackrf_device_list_open(hdl, device_index, pointer(self.dev_p))
+        result = libhackrf.hackrf_device_list_open(hdl, self.device_index, pointer(self.dev_p))
         if result != HackRfError.HACKRF_SUCCESS:
             raise IOError('Error code %d when opening HackRF' % (result))
 
@@ -378,7 +388,6 @@ class HackRF(object):
         # self.dev_p.value returns the integer value of the pointer
 
         _hackrf_dict[self.dev_p.value] = self
-        #print "self.dev_p.value = ", self.dev_p.value
 
         self.device_opened = True
 
@@ -390,7 +399,6 @@ class HackRF(object):
         self.device_opened = False
 
     def __del__(self):
-        print "del function is being called"
         self.close()
 
     # sleep_time in seconds
@@ -422,10 +430,18 @@ class HackRF(object):
 
         return iq
 
+    def receive_to_buffer(self):
+        self.buffer = bytearray()
+
+        result = libhackrf.hackrf_start_rx(self.dev_p, tb_callback, None)
+        if result != HackRfError.HACKRF_SUCCESS:
+            raise IOError("Error in hackrf_start_rx")
+
+
     def transmit_noise(self):
         result = libhackrf.hackrf_start_tx(self.dev_p, noise_callback, None)
         if result != HackRfError.HACKRF_SUCCESS:
-            raise IOError("Error in hackrf_start_tx in write_samples")
+            raise IOError("Error in hackrf_start_tx in transmit_noise")
 
         return 0
 
@@ -487,7 +503,7 @@ class HackRF(object):
             # TODO: make this a better message
             raise IOError("error setting lna gain")
         self._lna_gain = gain
-        print "LNA gain set to",gain,"dB."
+        # print "LNA gain set to",gain,"dB."
         return 0
 
     def get_lna_gain(self):
@@ -502,7 +518,7 @@ class HackRF(object):
             # TODO: make this a better message
             raise IOError("error setting vga gain")
         self._vga_gain = gain
-        print "VGA gain set to",gain,"dB."
+        # print "VGA gain set to",gain,"dB."
         return 0
 
     def get_vga_gain(self):
@@ -522,6 +538,13 @@ class HackRF(object):
         if result != HackRfError.HACKRF_SUCCESS:
             raise IOError("stop_rx failure")
 
+        if(len(self.buffer) > 0):
+            iq = bytes2iq(self.buffer)
+            self.buffer = bytearray()
+            return iq
+        else:
+            return []
+
     def start_tx(self, tx_cb_fn):
         tx_cb = _callback(tx_cb_fn)
         result =  libhackrf.hackrf_start_tx(self.dev_p, tx_cb, None)
@@ -538,7 +561,7 @@ class HackRF(object):
         if result != HackRfError.HACKRF_SUCCESS:
             raise IOError("error setting txvga gain")
         self._txvga_gain = gain
-        print "TXVGA gain set to",gain,"dB."
+        # print "TXVGA gain set to",gain,"dB."
         return 0
 
     def get_txvga_gain(self):
